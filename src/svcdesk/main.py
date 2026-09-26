@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import lifecycle, sla
+from . import dora, lifecycle, sla
 from .clock import HEADER, InvalidClock, format_instant, parse_instant, request_now
 from .priority import compute_priority
 from .store import Store
@@ -153,3 +153,22 @@ def close(ticket_id: str, request: Request):
 @app.post("/tickets/{ticket_id}/reopen")
 def reopen(ticket_id: str, request: Request):
     return transition(ticket_id, "reopen", request)
+
+
+@app.post("/dora/metrics")
+async def dora_metrics(request: Request):
+    """Lab 2 METRIC-SPEC.md section 6: a pure function of the request body, nothing is stored."""
+    try:
+        body = json.loads(await request.body() or b"null")
+    except (ValueError, UnicodeDecodeError):
+        return error(422, "validation", "request body must be valid JSON")
+    try:
+        return dora.compute(body)
+    except ValidationError as exc:
+        return error(422, "validation", str(exc))
+
+
+@app.get("/dora/ticket-events")
+def dora_ticket_events() -> list:
+    """Lab 2 METRIC-SPEC.md section 7: every lifecycle instant of every ticket the service holds."""
+    return dora.ticket_events(store.all())
