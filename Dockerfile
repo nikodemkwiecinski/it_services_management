@@ -8,6 +8,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY src/ /app/src/
+# The practice fixture, for the own-tests suite (src/tests) that runs from this same image.
+COPY fixtures/ /app/fixtures/
 
 RUN mkdir -p /data
 ENV SVCDESK_DB=/data/svcdesk.db \
