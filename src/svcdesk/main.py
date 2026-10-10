@@ -6,10 +6,10 @@ import os
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import dora, lifecycle, sla
+from . import dora, kb, lifecycle, metrics, sla
 from .clock import HEADER, InvalidClock, format_instant, parse_instant, request_now
 from .priority import compute_priority
 from .store import Store
@@ -40,6 +40,10 @@ async def test_clock(request: Request, call_next):
     return await call_next(request)
 
 
+# Added last, so it is the outermost middleware: it times the whole request, refusals included (Lab 3 M-04).
+app.add_middleware(metrics.RequestDurationMiddleware)
+
+
 def ticket_not_found(ticket_id: str) -> JSONResponse:
     return error(404, "not_found", f"ticket {ticket_id} does not exist")
 
@@ -47,6 +51,26 @@ def ticket_not_found(ticket_id: str) -> JSONResponse:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "svcdesk"}
+
+
+@app.get("/metrics")
+def prometheus_metrics() -> Response:
+    """Lab 3 M-03: the Prometheus text exposition format, version 0.0.4."""
+    return Response(content=metrics.exposition(), media_type=metrics.CONTENT_TYPE)
+
+
+@app.get("/kb/search")
+async def kb_search(request: Request):
+    """Lab 3 M-02: one call to kb-index per valid request; any upstream failure is a 502."""
+    q = request.query_params.get("q")
+    problem = kb.query_error(q)
+    if problem is not None:
+        return error(422, "validation", problem)
+    try:
+        hits = await kb.search(q)
+    except kb.UpstreamUnavailable as exc:
+        return error(502, "upstream_unavailable", str(exc))
+    return {"query": q, "hits": hits}
 
 
 @app.post("/tickets", status_code=201)
